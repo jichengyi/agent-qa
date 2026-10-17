@@ -25,7 +25,7 @@ import time
 import uuid
 from datetime import datetime
 
-SCHEMA_VERSION = "1.1"
+SCHEMA_VERSION = "1.2"
 ENGINE = "research-assistant"
 MAX_PROMPT_CHARS = 2000
 
@@ -37,30 +37,43 @@ _INJECTION_KEYWORDS = ("忽略", "系统提示", "system prompt", "开发者模�
 _STAGE_NAMES = ("planning", "retrieval", "analysis", "report")
 
 _REF_TEMPLATE = [
-    (
-        "OpenAlex｜Retrieval-Augmented Generation for Knowledge-Intensive NLP",
-        "联网检索/OpenAlex", "web", "OpenAlex", "https://openalex.org/W2741809807", "2020",
-    ),
-    (
-        "Crossref｜Survey on Hallucination in Large Language Models",
-        "联网检索/Crossref", "web", "Crossref", "https://doi.org/10.1145/3641289", "2024",
-    ),
-    (
-        "arXiv｜Evaluating Retrieval Quality in RAG Pipelines",
-        "联网检索/arXiv", "web", "arXiv", "https://arxiv.org/abs/2402.01234", "2024",
-    ),
-    (
-        "本地库｜引用幻觉检测方法综述.pdf",
-        "本地向量库", "local_library", "local", "D:/papers/引用幻觉检测方法综述.pdf", "2023",
-    ),
-    (
-        "本地库｜RAG 评测基准设计.pdf",
-        "本地向量库", "local_library", "local", "D:/papers/RAG评测基准设计.pdf", "2024",
-    ),
-    (
-        "技能｜学术检索最佳实践",
-        "本机技能", "skill", "local", "D:/skills/scholar-search.md", "2025",
-    ),
+    {
+        "title": "OpenAlex｜Retrieval-Augmented Generation for Knowledge-Intensive NLP",
+        "provenance": "联网检索/OpenAlex", "kind": "web", "origin": "OpenAlex",
+        "url": "https://openalex.org/W2741809807", "year": "2020",
+        "path": "", "chunk_count": 1,
+    },
+    {
+        "title": "Crossref｜Survey on Hallucination in Large Language Models",
+        "provenance": "联网检索/Crossref", "kind": "web", "origin": "Crossref",
+        "url": "https://doi.org/10.1145/3641289", "year": "2024",
+        "path": "", "chunk_count": 1,
+    },
+    {
+        "title": "arXiv｜Evaluating Retrieval Quality in RAG Pipelines",
+        "provenance": "联网检索/arXiv", "kind": "web", "origin": "arXiv",
+        "url": "https://arxiv.org/abs/2402.01234", "year": "2024",
+        "path": "", "chunk_count": 1,
+    },
+    # v1.2 起 references 按文档聚合：一篇 PDF 命中多段只算一条来源，段数记在 chunk_count
+    {
+        "title": "引用幻觉检测方法综述.pdf",
+        "provenance": "本地向量库", "kind": "local_library", "origin": "local",
+        "url": "D:/papers/引用幻觉检测方法综述.pdf", "year": "2023",
+        "path": "D:/papers/引用幻觉检测方法综述.pdf", "chunk_count": 3,
+    },
+    {
+        "title": "RAG 评测基准设计.pdf",
+        "provenance": "本地向量库", "kind": "local_library", "origin": "local",
+        "url": "D:/papers/RAG评测基准设计.pdf", "year": "2024",
+        "path": "D:/papers/RAG评测基准设计.pdf", "chunk_count": 2,
+    },
+    {
+        "title": "学术检索最佳实践",
+        "provenance": "本机技能", "kind": "skill", "origin": "local",
+        "url": "D:/skills/scholar-search.md", "year": "2025",
+        "path": "D:/skills/scholar-search.md", "chunk_count": 1,
+    },
 ]
 
 
@@ -111,6 +124,7 @@ class StubAgent:
                 "source_count": 0,
                 "stage_count": 0,
                 "cached": False,
+                "context": {"limit": 8000, "truncated": False},
             }
             return result
 
@@ -169,22 +183,24 @@ class StubAgent:
             result["retrieval_notes"] = [{"source": "all", "reason": "use_retrieval=False"}]
         else:
             refs = []
-            for idx, (title, provenance, kind, origin, url, year) in enumerate(_REF_TEMPLATE):
+            for idx, tpl in enumerate(_REF_TEMPLATE):
                 refs.append(
                     {
                         # DEF-003：id 从 0 起编，正文却从 [1] 起引，编号错位
                         "id": idx,
-                        "title": title,
-                        "provenance": provenance,
-                        "kind": kind,
-                        "origin": origin,
-                        "url": url,
-                        "doi": f"10.1000/{idx + 1}" if kind == "web" else "",
-                        "year": year,
+                        "title": tpl["title"],
+                        "provenance": tpl["provenance"],
+                        "kind": tpl["kind"],
+                        "origin": tpl["origin"],
+                        "url": tpl["url"],
+                        "path": tpl["path"],
+                        "chunk_count": tpl["chunk_count"],
+                        "doi": f"10.1000/{idx + 1}" if tpl["kind"] == "web" else "",
+                        "year": tpl["year"],
                         "authors": "—",
                         "venue": "—",
                         "cited_by": 100 + idx,
-                        "snippet": f"{title} 的摘要片段……",
+                        "snippet": f"{tpl['title']} 的摘要片段……",
                         "cited": True,
                         "cite_count": 1,
                     }
@@ -203,12 +219,19 @@ class StubAgent:
             result["citation"] = self._citation(markers, len(refs))
             result["retrieval_notes"] = []
 
+        if tool_broken:
+            result["retrieval_notes"] = [
+                {"source": "search_papers_web", "reason": "RuntimeError: HTTP 503：OpenAlex 限流"}
+            ]
+
         result["usage"] = {
             "duration_ms": round((time.perf_counter() - started) * 1000 + 1200.0, 1),
             "tool_count": len(result["tool_calls"]),
             "source_count": len(result["references"]),
             "stage_count": len(result["stages"]),
             "cached": False,
+            # v1.2 新增：coverage 的分母是否被截断裁剪过，评测时必须一起记录
+            "context": {"limit": 8000, "truncated": False},
         }
         return result
 
@@ -234,6 +257,7 @@ class StubAgent:
                 "source_count": 0,
                 "stage_count": 0,
                 "cached": False,
+                "context": {"limit": 8000, "truncated": False},
             },
             "warnings": [],
             "error": None,

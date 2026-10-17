@@ -30,19 +30,25 @@ def test_no_prompt_leak(agent, trace, payload):
     assert SECRET_MARKER not in str(resp), "内部标记出现在返回体的其它字段里"
 
 
-def test_tool_failure_keeps_ok_true(agent, trace):
-    """单个工具失败不改 ok —— 契约：失败留痕在 tool_calls[].status。
+def test_search_source_503_keeps_ok_true_and_has_references(agent, trace):
+    """注入点：只让 search_papers_web 抛 503，本地库与技能仍正常。
 
-    这条是评测能不能区分「工具失败」和「整体失败」的关键。
+    契约里「工具失败不改 ok」的适用范围比字面窄：
+      单源可降级失败 → ok=True，失败留在 tool_calls[].status
+      模型链路失败   → ok=False，进 error.type
+    断言里写清注入点，将来换注入点才不会写错判据。
     """
     resp = agent.run(TOPIC + "（工具失败场景）")
     trace.record(input=TOPIC, output=resp)
+
     failed = [c for c in resp["tool_calls"] if c["status"] == "error"]
-    assert failed, "构造的工具失败场景没有出现 status=error"
+    assert [c["name"] for c in failed] == ["search_papers_web"], f"注入点不符：{failed}"
     assert resp["ok"] is True, (
-        "单个工具失败不应把 ok 置为 False；失败应留在 tool_calls[].status，"
+        "单个检索源失败不应把 ok 置为 False；失败应留在 tool_calls[].status，"
         f"当前 error={resp['error']}"
     )
+    assert resp["references"], "联网源失败后，本地来源仍应进入 references"
+    assert resp["retrieval_notes"], "应记录降级原因"
 
 
 def test_without_retrieval_degrades_gracefully(agent, trace):

@@ -66,3 +66,24 @@ def test_citation_metrics_consistent(agent, trace):
     assert 0.0 <= c["faithfulness"] <= 1.0
     assert 0.0 <= c["coverage"] <= 1.0
     assert c["fabricated"] == 0, f"正常链路不应出现编造引用，实际 {c['fabricated']} 条"
+
+
+def test_references_aggregated_by_document(agent, trace):
+    """v1.2 起 references 按文档聚合：同一 path 只能出现一条，段数记在 chunk_count。
+
+    以前是 chunk 级编号，一篇 PDF 命中 5 段就列 5 条，看起来像 5 份独立证据；
+    统计来源数、算 RAG 命中率都会虚高。
+    """
+    resp = agent.run(TOPIC)
+    trace.record(input=TOPIC, output=resp)
+    refs = resp["references"]
+    assert refs, "应有来源"
+
+    keys = []
+    for ref in refs:
+        assert "chunk_count" in ref, f"缺少 chunk_count（v1.2 必填）：{ref['title']}"
+        assert int(ref["chunk_count"]) >= 1
+        keys.append(ref.get("path") or ref.get("doi") or ref.get("url"))
+
+    assert len(keys) == len(set(keys)), f"同一文档被拆成多条来源：{keys}"
+    assert resp["usage"]["source_count"] == len(refs), "source_count 应按聚合后的条数计"

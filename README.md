@@ -1,11 +1,11 @@
 # agent-qa · AI 智能体测试工程
 
 「AI 智能体测试挑战赛」参赛工程的**测试基座**（角色 A 负责部分）。
-被测对象是一个科研助手 Agent，本仓库负责：**用例 → pytest 执行 → 报告 → 结构化执行记录 → CI**。
+被测对象是科研助手 `research-assistant`，本仓库负责：**用例 → pytest 执行 → 报告 → 结构化执行记录 → CI**。
 
-> 接口按 C 提供的《自动化评测接口说明》v1.1 对齐，速查见 `docs/接口契约速查.md`。
+> 接口按《自动化评测接口说明》**v1.2** 对齐，速查见 `docs/接口契约速查.md`。
 > 当前 `agent_under_test/stub_agent.py` 是**本地替身**（与真实接口同构），
-> 故意保留 3 个缺陷，所以运行结果是 **13 通过 5 失败**。这是预期行为，不是环境问题。
+> 故意保留 3 个缺陷，所以运行结果是 **15 通过 5 失败**。这是预期行为，不是环境问题。
 
 ## 目录结构
 
@@ -13,32 +13,33 @@
 agent-qa/
 ├─ agent_under_test/
 │  ├─ stub_agent.py         # 本地替身：run(prompt) -> 16 字段 dict，含 3 个已知缺陷
-│  └─ real_adapter.py       # 真实实现适配器：包 src.api.run，交付后切这里
+│  ├─ real_adapter.py       # 真实实现适配器：包 src.api.run
+│  └─ offline.py            # 离线打桩：外部依赖换假实现，流水线照常跑
 ├─ tests/
-│  ├─ test_smoke.py         # 冒烟：字段齐全、工具序列、usage/stages 自洽
-│  ├─ test_contract.py      # 契约：空输入、超长拒绝、raise_on_error、引用编号、指标自洽
-│  └─ test_safety.py        # 对抗：越狱泄露、工具失败语义、降级、可复现性
-├─ conftest.py              # agent / trace fixture + 执行记录落盘
+│  ├─ conftest.py           # autouse：每条用例前后清被测系统的结果缓存
+│  ├─ test_smoke.py         # 冒烟 7 条：字段、序列、usage/context、run_id
+│  ├─ test_contract.py      # 契约 7 条：失败语义、引用编号、指标自洽、来源聚合
+│  └─ test_safety.py        # 对抗 6 条：越狱、单源 503、降级、可复现
+├─ conftest.py              # agent / trace fixture；统一注入 use_cache=False
 ├─ pytest.ini               # 标记、超时（1200s，迁就真实链路）、pythonpath
 ├─ tools/summary.py         # 读 results.json 出汇总表（CI 里写 Job Summary）
 ├─ reports/latest/results.json   # 每次运行生成，不入库
 ├─ docs/
-│  ├─ 接口契约速查.md        # 16 字段 + 失败语义 + 指标口径
-│  ├─ 测试用例清单.md        # 18 条用例，表与代码一一对应
+│  ├─ 接口契约速查.md        # 16 字段 + 失败语义 + 指标口径 + 缓存与离线坑
+│  ├─ 测试用例清单.md        # 20 条用例，表与代码一一对应
 │  └─ 缺陷清单.md            # 3 个缺陷 + 修复记录
 └─ .github/workflows/ci.yml
 ```
 
-## 跑起来
+## 跑起来（用本地替身，秒级）
 
 ```bash
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
 
-pytest -v                                  # 全量
+pytest -v                                  # 全量 20 条
 pytest -m smoke -v                         # 只跑冒烟
-pytest -m contract -v                      # 只跑契约
 pytest --no-record -v                      # 不写执行记录
 pytest --alluredir=reports/allure-results  # 生成 allure 原始数据
 python tools/summary.py                    # 打印执行汇总
@@ -46,26 +47,48 @@ python tools/summary.py                    # 打印执行汇总
 
 ## 接入真实被测对象
 
-C 交付科研助手后，**只设环境变量，用例一行都不用改**：
+**第一步：让 `src.api` 能被 import。**
+被测仓库**没有** `setup.py` / `pyproject.toml`，所以 `pip install -e .` 会直接报错。
+用 `PYTHONPATH` 指向源码根：
 
 ```powershell
 $env:AGENT_IMPL = "real"
-$env:AGENT_SRC  = "D:\workAi\research-assistant"   # 科研助手源码根目录
+$env:AGENT_SRC  = "D:\workAi\research-assistant"   # 含 src/ 的那一层
+$env:PYTHONPATH = "D:\workAi\research-assistant"   # 与 AGENT_SRC 同值
 pytest -m smoke -v
 ```
 
-`conftest.py` 里的 `_build_agent()` 会走 `real_adapter.RealAgent`，它只做
-`from src.api import run` + 转发，不复制任何业务逻辑。
+`conftest._build_agent()` 会走 `real_adapter.RealAgent`，它只做
+`from src.api import run` + 转发。**用例一行都不用改。**
 
-**注意**：真实链路单次 `run()` 实测约 1000 秒（接口说明第 9 节），全量 18 条串行跑不动。
-先只跑 `-m smoke`，或跟 C 要打桩模式（他的 25 条契约用例是「全离线、打桩不烧额度」的）。
+**第二步：不要指望 `MOCK_MODE=1` 跑用例。**
+它会把检索整段短路（`research_flow.py:271`），结果 `tool_calls=[]`、`references=[]`，
+只能验结构、验不了行为。要离线测行为用 `agent_under_test/offline.py`：
+
+```python
+from agent_under_test.offline import offline
+
+with offline(n_web=2, n_local=1, search_error=True):
+    resp = run("测试主题")        # 流水线照常跑，外部依赖是假的
+```
+
+**第三步：真实链路一条约 1000 秒**（接口说明第 9 节），20 条串行跑不动。
+日常用 `offline()`；真机只跑 1–2 条 `-m smoke` 做端到端验证。
+
+## 三个容易踩的坑（都已处理）
+
+| 坑 | 现象 | 处理 |
+| --- | --- | --- |
+| 缓存串结果 | 注入不同故障的两条用例，第二条拿到第一条的成功结果 → **假通过** | `conftest._Agent` 统一注入 `use_cache=False`；`tests/conftest.py` autouse 清缓存 |
+| `schema_version` 升到 1.2 | 断言写死 `"1.1"` 直接红 | 用例断言 `"1.2"`；新增 `usage.context` 断言 |
+| `references` 按文档聚合 | 一篇 PDF 命中 5 段从 5 条变 1 条，`chunk_count=5` | `test_references_aggregated_by_document` 按 `path`/`doi` 去重 |
 
 ## 已知缺陷（用于验证测试有效性）
 
 | 编号 | 现象 | 命中用例 |
 | --- | --- | --- |
 | DEF-001 | 越狱指令导致内部标记 `INTERNAL-RULE-7749` 泄露 | `test_no_prompt_leak`（3 条参数化） |
-| DEF-002 | 单个工具失败被误判为整体失败（`ok=False`） | `test_tool_failure_keeps_ok_true` |
+| DEF-002 | 单个检索源失败被误判为整体失败（`ok=False`） | `test_search_source_503_keeps_ok_true_and_has_references` |
 | DEF-003 | `references[].id` 从 0 起编，与正文 `[n]` 错位 | `test_reference_id_matches_markers` |
 
 换成真实 Agent 后这 5 条应当转绿；若仍失败，说明真实系统也有同类问题。
@@ -75,8 +98,8 @@ pytest -m smoke -v
 C 已有 `tests/test_eval_entry_contract.py` 25 条**结构层**契约用例（字段齐全、JSON 往返、
 HTTP 400/413/429 等）。本仓库不重复，只做**评测侧增量**：
 
-- 失败语义的黑盒验证（不抛异常、超长拒绝、工具失败不改 `ok`）
-- 引用与指标可信度（编号对齐、指标自洽、编造引用）
+- 失败语义的黑盒验证（不抛异常、超长拒绝、单源失败不改 `ok`）
+- 引用与指标可信度（编号对齐、指标自洽、按文档聚合）
 - 安全对抗与可复现性（越狱、降级、同输入同结果）
 
 ## Git 提交规范（交付硬要求）
@@ -86,7 +109,7 @@ HTTP 400/413/429 等）。本仓库不重复，只做**评测侧增量**：
 
 | 前缀 | 用途 |
 | --- | --- |
-| `feat` | 新能力（fixture、记录器、看板接口） |
+| `feat` | 新能力（fixture、记录器、打桩、看板接口） |
 | `test` | 新增 / 修改用例 |
 | `ci` | 流水线配置 |
 | `docs` | 文档、用例清单、契约速查 |

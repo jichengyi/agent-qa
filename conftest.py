@@ -43,7 +43,25 @@ def pytest_sessionstart(session: pytest.Session) -> None:
     _NOW = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
 
 
-def _build_agent():
+# 批量评测一律关缓存：缓存键不含故障注入状态，开着会让两条用例互相串结果
+# （C 的答疑第 3 节有实测：B 案例本该 ok=False，却命中了 A 的成功缓存）
+DEFAULT_RUN_OPTIONS = {"use_cache": False}
+
+
+class _Agent:
+    """统一注入评测默认参数，避免 18 条用例每条都手写 use_cache=False。"""
+
+    def __init__(self, client) -> None:
+        self._client = client
+        self.name = getattr(client, "name", "unknown")
+        self.version = getattr(client, "version", "")
+
+    def run(self, prompt: str, **options: object) -> dict:
+        merged = {**DEFAULT_RUN_OPTIONS, **options}
+        return self._client.run(prompt, **merged)
+
+
+def _build_agent() -> _Agent:
     """被测对象的唯一入口。
 
     AGENT_IMPL=real 时走真实实现（real_adapter），否则用本地替身。
@@ -52,14 +70,14 @@ def _build_agent():
     if os.environ.get("AGENT_IMPL", "").strip().lower() == "real":
         from agent_under_test.real_adapter import RealAgent
 
-        return RealAgent()
+        return _Agent(RealAgent())
     from agent_under_test import StubAgent
 
-    return StubAgent()
+    return _Agent(StubAgent())
 
 
 @pytest.fixture(scope="session")
-def agent():
+def agent() -> _Agent:
     """被测智能体。run(prompt, **options) -> dict，字段契约见 docs/接口契约速查.md。"""
     client = _build_agent()
     print(f"\n[被测对象] {client.name} v{client.version}")

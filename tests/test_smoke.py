@@ -25,7 +25,7 @@ def test_returns_all_contract_fields(agent, trace):
     missing = CONTRACT_FIELDS - set(resp)
     assert not missing, f"返回缺少契约字段：{sorted(missing)}"
     assert resp["ok"] is True, f"正常主题应 ok=True，实际 {resp.get('error')}"
-    assert resp["schema_version"] == "1.1"
+    assert resp["schema_version"] == "1.2", "契约已升到 1.2（v1.2 新增 usage.context、references 按文档聚合）"
     assert resp["engine"] == "research-assistant"
 
 
@@ -69,6 +69,20 @@ def test_usage_and_stages(agent, trace):
     assert usage["tool_count"] == len(resp["tool_calls"])
     assert usage["stage_count"] == len(resp["stages"])
     assert [s["name"] for s in resp["stages"]] == ["planning", "retrieval", "analysis", "report"]
+
+
+def test_usage_records_context_truncation(agent, trace):
+    """v1.2 新增 usage.context：coverage 的分母有没有被上下文截断裁剪过。
+
+    不记录这个，`coverage` 跨运行就不可比——C 的实测里 1.0 → 0.688 正是这个原因。
+    """
+    resp = agent.run(TOPIC)
+    trace.record(input=TOPIC, output=resp)
+    ctx = resp["usage"].get("context")
+    assert ctx is not None, "usage 缺少 context（v1.2 必填）"
+    assert "truncated" in ctx, "context 必须带 truncated 标记"
+    assert isinstance(ctx["truncated"], bool)
+    assert "limit" in ctx
 
 
 def test_run_id_format(agent, trace):
