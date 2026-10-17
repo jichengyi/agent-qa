@@ -1,0 +1,62 @@
+name: agent-qa
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "0 16 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run pytest
+        id: run
+        continue-on-error: true
+        run: pytest -v --alluredir=reports/allure-results
+
+      - name: Summarize execution record
+        if: always()
+        run: python tools/summary.py
+
+      - name: Upload allure results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-results-py${{ matrix.python-version }}
+          path: reports/allure-results
+          retention-days: 14
+
+      - name: Upload execution record
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: execution-record-py${{ matrix.python-version }}
+          path: reports/latest/results.json
+          retention-days: 30
