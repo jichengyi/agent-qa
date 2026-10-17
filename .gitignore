@@ -9,6 +9,7 @@ venv/
 
 reports/allure-results/
 reports/latest/
+reports/judge/
 reports/history.jsonl
 
 .env
