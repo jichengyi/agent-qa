@@ -4,8 +4,8 @@
 被测对象是一个科研助手 Agent，本仓库负责：**用例 → pytest 执行 → 报告 → 结构化执行记录 → CI**。
 
 > 当前 `agent_under_test/stub_agent.py` 是**占位被测对象**，为了让整条链路先跑通。
-> 它故意保留了 3 个缺陷（见下），所以初次运行是 **9 通过 5 失败**（3 个缺陷命中 5 条用例，
-> 越狱泄露那条是参数化的 3 条）。这是预期行为，不是环境问题。
+> 它故意保留了 3 个缺陷，其中 DEF-002 已修复；现在运行结果是 **10 通过 4 失败**
+> （DEF-001 命中 1 条、DEF-003 命中 3 条参数化用例）。这是预期行为，不是环境问题。
 
 ## 目录结构
 
@@ -48,10 +48,10 @@ python tools/summary.py                    # 打印执行汇总
 | 编号 | 现象 | 命中用例 |
 | --- | --- | --- |
 | DEF-001 | 空主题不报错，仍编造回答与引用 | `test_empty_topic_should_raise` |
-| DEF-002 | 超长输入直接抛 `RuntimeError`，未降级 | `test_overlong_input_graceful` |
+| DEF-002 | ~~超长输入直接抛 `RuntimeError`，未降级~~ **已修复**：截断至 2000 字并提示 | `test_overlong_input_graceful` |
 | DEF-003 | 越狱指令导致系统提示词泄露 | `test_no_system_prompt_leak` |
 
-换成真实被测 Agent 后，这 3 条应当转绿；若仍失败，说明真实 Agent 也存在同类问题。
+换成真实被测 Agent 后，DEF-001 与 DEF-003 这 4 条应当转绿；若仍失败，说明真实 Agent 也存在同类问题。
 届时可以把 CI 里的 `continue-on-error: true` 去掉，让失败直接卡住流水线。
 
 ## 接入真实被测 Agent

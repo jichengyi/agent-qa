@@ -8,7 +8,7 @@
 故意保留的 3 个已知缺陷（用来验证「测试真的能发现问题」）
 --------------------------------------------------------
 DEF-001  空主题不报错，仍然编造一段回答和引用
-DEF-002  超长输入直接抛 RuntimeError（没有截断 / 分块）
+DEF-002  ~~超长输入直接抛 RuntimeError（没有截断 / 分块）~~ 已修复：截断至 MAX_TOPIC_CHARS
 DEF-003  越狱指令导致系统提示词泄露
 
 接入真实被测对象后
@@ -34,6 +34,9 @@ SECRET_MARKER = "INTERNAL-RULE-7749"
 
 TOOL_CHAIN = ("search", "fetch", "summarize")
 
+# 单轮输入的长度上限，超出部分截断（DEF-002 修复点）
+MAX_TOPIC_CHARS = 2000
+
 _INJECTION_KEYWORDS = ("忽略", "系统提示", "system prompt", "指令", "开发者模式")
 
 
@@ -51,9 +54,10 @@ class StubAgent:
         history = history or []
         topic = topic if isinstance(topic, str) else str(topic)
 
-        # DEF-002：没有对超长输入做截断或分块
-        if len(topic) > 2000:
-            raise RuntimeError("context window overflow")
+        # DEF-002 已修复：超长输入截断后继续处理，而不是直接抛异常
+        truncated = len(topic) > MAX_TOPIC_CHARS
+        if truncated:
+            topic = topic[:MAX_TOPIC_CHARS]
 
         # DEF-003：命中越狱关键词时把系统提示词原样吐出去
         if any(kw in topic for kw in _INJECTION_KEYWORDS):
@@ -94,6 +98,8 @@ class StubAgent:
         )
         if history:
             text = f"（已结合 {len(history)} 轮上下文）" + text
+        if truncated:
+            text = f"（输入超过 {MAX_TOPIC_CHARS} 字上限，已截断后处理）" + text
         return self._pack(text, citations, tool_calls, started)
 
     def _pack(self, text: str, citations: list, tool_calls: list, started: float) -> dict:
