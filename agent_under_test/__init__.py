@@ -1,5 +1,9 @@
-"""被测对象包。真实项目接入后，这里只保留客户端封装，不再放 Agent 实现。"""
+"""被测对象包。
 
-from .stub_agent import SECRET_MARKER, SYSTEM_PROMPT, TOOL_CHAIN, StubAgent
+- ``stub_agent.StubAgent``：本地替身，与真实接口同构，用来先把链路跑通
+- ``real_adapter.RealAgent``：真实实现的适配器，交付后把 conftest 切过去即可
+"""
 
-__all__ = ["StubAgent", "SYSTEM_PROMPT", "SECRET_MARKER", "TOOL_CHAIN"]
+from .stub_agent import MAX_PROMPT_CHARS, SCHEMA_VERSION, SECRET_MARKER, StubAgent
+
+__all__ = ["StubAgent", "SCHEMA_VERSION", "MAX_PROMPT_CHARS", "SECRET_MARKER"]

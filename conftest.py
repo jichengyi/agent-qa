@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,8 +18,6 @@ import pytest
 ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-
-from agent_under_test import StubAgent  # noqa: E402
 
 REPORT_DIR = ROOT / "reports" / "latest"
 HISTORY_FILE = ROOT / "reports" / "history.jsonl"
@@ -44,10 +43,25 @@ def pytest_sessionstart(session: pytest.Session) -> None:
     _NOW = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
 
 
+def _build_agent():
+    """被测对象的唯一入口。
+
+    AGENT_IMPL=real 时走真实实现（real_adapter），否则用本地替身。
+    接真机只需要设环境变量，用例一行都不用改。
+    """
+    if os.environ.get("AGENT_IMPL", "").strip().lower() == "real":
+        from agent_under_test.real_adapter import RealAgent
+
+        return RealAgent()
+    from agent_under_test import StubAgent
+
+    return StubAgent()
+
+
 @pytest.fixture(scope="session")
-def agent() -> StubAgent:
-    """被测智能体。换成真实对象时，只改这一个函数。"""
-    client = StubAgent()
+def agent():
+    """被测智能体。run(prompt, **options) -> dict，字段契约见 docs/接口契约速查.md。"""
+    client = _build_agent()
     print(f"\n[被测对象] {client.name} v{client.version}")
     return client
 
