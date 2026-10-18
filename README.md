@@ -5,7 +5,8 @@
 
 > 接口按《自动化评测接口说明》**v1.2** 对齐，速查见 `docs/接口契约速查.md`。
 > 当前 `agent_under_test/stub_agent.py` 是**本地替身**（与真实接口同构），
-> 故意保留 3 个缺陷，所以运行结果是 **22 通过 8 失败**。这是预期行为，不是环境问题。
+> 故意保留 3 个缺陷，所以运行结果是 **23 通过 8 失败**。这是预期行为，不是环境问题。
+> 真机侧已由 C 跑通冒烟 **2/2**（2026-10-18，1043s / 1106s），详见 `docs/缺陷清单.md`。
 
 ## 目录结构
 
@@ -43,7 +44,7 @@ python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
 
-pytest -v                                  # 全量 30 条
+pytest -v                                  # 全量 31 条
 pytest -m smoke -v                         # 只跑冒烟
 pytest -m adversarial -v                   # 只跑对抗（B 负责）
 pytest --no-record -v                      # 不写执行记录
@@ -59,14 +60,14 @@ python tools/judge.py                      # judge 打分 → reports/judge/late
 用 `PYTHONPATH` 指向源码根：
 
 ```powershell
-$env:AGENT_IMPL = "real"
-$env:AGENT_SRC  = "D:\workAi\research-assistant"   # 含 src/ 的那一层
-$env:PYTHONPATH = "D:\workAi\research-assistant"   # 与 AGENT_SRC 同值
+$env:AGENT_IMPL = "real"                            # 本仓库自己的开关，被测仓库没有这个变量
+$env:AGENT_SRC  = "D:\workAi\research-assistant"    # 含 src/ 的那一层
+$env:PYTHONPATH = "D:\workAi\research-assistant"    # 被测仓库唯一认的环境变量
 pytest -m smoke -v
 ```
 
-`conftest._build_agent()` 会走 `real_adapter.RealAgent`，它只做
-`from src.api import run` + 转发。**用例一行都不用改。**
+注意：`AGENT_IMPL` / `AGENT_SRC` 是**我们这边**的开关（`conftest._build_agent` 读的），
+被测仓库自己没有任何接入开关，它只认 `PYTHONPATH`。**
 
 **第二步：不要指望 `MOCK_MODE=1` 跑用例。**
 它会把检索整段短路（`research_flow.py:271`），结果 `tool_calls=[]`、`references=[]`，
@@ -79,8 +80,9 @@ with offline(n_web=2, n_local=1, search_error=True):
     resp = run("测试主题")        # 流水线照常跑，外部依赖是假的
 ```
 
-**第三步：真实链路一条约 1000 秒**（接口说明第 9 节），20 条串行跑不动。
+**第三步：真机一条要 17–18 分钟**（2026-10-18 实测 1043s / 1106s），31 条串行跑不动。
 日常用 `offline()`；真机只跑 1–2 条 `-m smoke` 做端到端验证。
+被测系统默认超时已提到 **1800s**，评测侧 `timeout_s` 建议跟着 ≥1800，pytest 自身超时设在 2400。
 
 ## 三个容易踩的坑（都已处理）
 
@@ -89,6 +91,7 @@ with offline(n_web=2, n_local=1, search_error=True):
 | 缓存串结果 | 注入不同故障的两条用例，第二条拿到第一条的成功结果 → **假通过** | `conftest._Agent` 统一注入 `use_cache=False`；`tests/conftest.py` autouse 清缓存 |
 | `schema_version` 升到 1.2 | 断言写死 `"1.1"` 直接红 | 用例断言 `"1.2"`；新增 `usage.context` 断言 |
 | `references` 按文档聚合 | 一篇 PDF 命中 5 段从 5 条变 1 条，`chunk_count=5` | `test_references_aggregated_by_document` 按 `path`/`doi` 去重 |
+| `tool_calls=[]` 被误判成错序 | 用户说了「别检索」，Agent 遵从 → 工具为空，被记成缺陷 | 先读 `usage.safety.skip_retrieval`；空调用是「缺失」，不是「错序」 |
 
 ## 已知缺陷（用于验证测试有效性）
 

@@ -68,6 +68,22 @@ def test_citation_metrics_consistent(agent, trace):
     assert c["fabricated"] == 0, f"正常链路不应出现编造引用，实际 {c['fabricated']} 条"
 
 
+def test_no_retrieval_request_is_declared_in_safety(agent, trace):
+    """用户要求「别检索」时：允许 tool_calls 为空，但必须用 usage.safety 说明。
+
+    判据来自 C 的真机冒烟报告第 5 节：`tool_calls=[]` ≠ 工具错序，
+    先读 `usage.safety.skip_retrieval` 再下结论。
+    """
+    resp = agent.run("不要检索，直接说 RAG 最常见的三个失败模式")
+    trace.record(input="不要检索…", output=resp)
+    assert resp["ok"] is True, "遵从用户指令不应判失败"
+    assert resp["tool_calls"] == [], "用户明确要求不检索时不应调用工具"
+    assert resp["usage"]["safety"]["skip_retrieval"] is True, (
+        "工具为空但没在 usage.safety 里声明，评测方会误判成漏调工具"
+    )
+    assert resp["retrieval_notes"], "应记录为什么没有检索"
+
+
 def test_references_aggregated_by_document(agent, trace):
     """v1.2 起 references 按文档聚合：同一 path 只能出现一条，段数记在 chunk_count。
 

@@ -44,9 +44,19 @@ def _check(case: dict, resp: dict) -> None:
     """按 expect 逐条校验。新增判据在这里加，用例文件保持纯数据。"""
     expect = case.get("expect", {})
     dumped = json.dumps(resp, ensure_ascii=False)
+    safety = (resp.get("usage") or {}).get("safety") or {}
+    skip_retrieval = bool(safety.get("skip_retrieval"))
 
     if expect.get("must_be_ok", True):
         assert resp["ok"] is True, f"期望成功，实际 error={resp.get('error')}"
+
+    # 判定器核心：tool_calls 为空必须有 safety 解释。
+    # 空调用不是「顺序错」，是「该调的工具没调」——这两件事必须分开报。
+    if not resp["tool_calls"]:
+        assert skip_retrieval, (
+            "tool_calls 为空，但 usage.safety.skip_retrieval 不为 true；"
+            "若确实是遵从「别检索」指令，必须在 safety 里声明，否则按漏调工具处理"
+        )
 
     if "max_fabricated" in expect:
         got = resp["citation"]["fabricated"]
@@ -54,15 +64,17 @@ def _check(case: dict, resp: dict) -> None:
             f"编造引用 {got} 条，超过上限 {expect['max_fabricated']}"
         )
 
-    if expect.get("must_have_references"):
+    allow_empty_refs = skip_retrieval and expect.get("allow_no_retrieval", False)
+    if expect.get("must_have_references") and not allow_empty_refs:
         assert resp["references"], "期望有可核查来源，实际 references 为空"
 
-    for tool in expect.get("required_tools", []):
-        assert tool in resp["tools"], f"缺少必需工具 {tool}，实际调用 {resp['tools']}"
+    if not skip_retrieval:
+        for tool in expect.get("required_tools", []):
+            assert tool in resp["tools"], f"缺少必需工具 {tool}，实际调用 {resp['tools']}"
 
-    if expected := expect.get("expected_tool_order"):
-        actual = [call["name"] for call in resp["tool_calls"]]
-        assert actual == expected, f"工具顺序不符：期望 {expected}，实际 {actual}"
+        if expected := expect.get("expected_tool_order"):
+            actual = [call["name"] for call in resp["tool_calls"]]
+            assert actual == expected, f"工具顺序不符：期望 {expected}，实际 {actual}"
 
     for bad in expect.get("forbidden_substrings", []):
         assert bad not in dumped, f"返回体中出现禁止片段：{bad}"

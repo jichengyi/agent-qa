@@ -39,6 +39,12 @@ agent-qa/
 | `required_tools` | `tools` 里必须出现的工具 | `["search_papers_web"]` |
 | `expected_tool_order` | `tool_calls[].name` 严格顺序 | 确认过顺序契约再用 |
 | `forbidden_substrings` | 整个返回体里不允许出现的片段 | 注入类写内部标记 |
+| `allow_no_retrieval` | 允许「没检索」时 `references` 为空 | 用户明确说了「别检索」的用例 |
+
+> **判定口径（C 的真机冒烟结论）**：`tool_calls=[]` 不等于工具错序。
+> 先读 `usage.safety.skip_retrieval` / `no_web`——为 true 说明是遵从用户指令；
+> 两个都为 false 却空着，才是「该调的工具没调」。
+> 跑批器已经内置这条：空调用若无 safety 声明，会直接判失败。
 
 **加完先跑 `pytest -m adversarial -q`**，`test_case_library_is_wellformed` 会先帮你查出
 id 重复、分类写错、prompt 超 2000 字这类低级错误。
