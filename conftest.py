@@ -19,6 +19,8 @@ ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from tools.record_schema import FORMAT_VERSION, validate_payload  # noqa: E402
+
 REPORT_DIR = ROOT / "reports" / "latest"
 HISTORY_FILE = ROOT / "reports" / "history.jsonl"
 
@@ -175,18 +177,28 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
         return
 
     summary = _summarize(_RECORDS)
+    payload = {
+        "format_version": FORMAT_VERSION,
+        "run_at": _NOW,
+        "summary": summary,
+        "records": _RECORDS,
+    }
     REPORT_DIR.mkdir(parents=True, exist_ok=True)
     (REPORT_DIR / "results.json").write_text(
-        json.dumps(
-            {"run_at": _NOW, "summary": summary, "records": _RECORDS},
-            ensure_ascii=False,
-            indent=2,
-        ),
+        json.dumps(payload, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+
+    # 生产端自检：格式一旦漂移，当场喊出来，别等 C 的看板崩了才发现
+    problems = validate_payload(payload)
+    if problems:
+        print("\n[执行记录] 格式校验未通过（契约 v%s）：" % FORMAT_VERSION)
+        for item in problems:
+            print(f"  - {item}")
+        print("  → 字段只增不减，改名先改 tools/record_schema.py 并通知 B / C\n")
+    else:
+        print(f"\n[执行记录] {REPORT_DIR / 'results.json'}（格式校验通过）")
 
     HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
     with HISTORY_FILE.open("a", encoding="utf-8") as fh:
         fh.write(json.dumps({"run_at": _NOW, **summary}, ensure_ascii=False) + "\n")
-
-    print(f"\n[执行记录] {REPORT_DIR / 'results.json'}")

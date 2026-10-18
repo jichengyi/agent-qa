@@ -45,6 +45,10 @@ jobs:
         if: always()
         run: python tools/summary.py
 
+      - name: Validate execution record schema
+        if: always()
+        run: python tools/validate_record.py
+
       - name: Upload allure results
         if: always()
         uses: actions/upload-artifact@v4

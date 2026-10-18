@@ -5,7 +5,7 @@
 
 > 接口按《自动化评测接口说明》**v1.2** 对齐，速查见 `docs/接口契约速查.md`。
 > 当前 `agent_under_test/stub_agent.py` 是**本地替身**（与真实接口同构），
-> 故意保留 3 个缺陷，所以运行结果是 **23 通过 8 失败**。这是预期行为，不是环境问题。
+> 故意保留 3 个缺陷，所以运行结果是 **28 通过 8 失败**。这是预期行为，不是环境问题。
 > 真机侧已由 C 跑通冒烟 **2/2**（2026-10-18，1043s / 1106s），详见 `docs/缺陷清单.md`。
 
 ## 目录结构
@@ -19,20 +19,24 @@ agent-qa/
 ├─ tests/
 │  ├─ conftest.py           # autouse：每条用例前后清被测系统的结果缓存
 │  ├─ test_smoke.py         # 冒烟 7 条：字段、序列、usage/context、run_id
-│  ├─ test_contract.py      # 契约 7 条：失败语义、引用编号、指标自洽、来源聚合
+│  ├─ test_contract.py      # 契约 8 条：失败语义、引用编号、指标自洽、来源聚合、safety 声明
 │  ├─ test_safety.py        # 对抗 6 条：越狱、单源 503、降级、可复现
 │  ├─ test_adversarial.py   # 对抗跑批器（B 负责）
-│  └─ adversarial_cases.json # 对抗用例数据（B 只改这个文件）
-├─ conftest.py              # agent / trace fixture；统一注入 use_cache=False
-├─ pytest.ini               # 标记、超时（1200s，迁就真实链路）、pythonpath
+│  ├─ adversarial_cases.json # 对抗用例数据（B 只改这个文件）
+│  └─ test_record_schema.py # 执行记录格式的自测 5 条
+├─ conftest.py              # agent / trace fixture；统一注入 use_cache=False；写完自检格式
+├─ pytest.ini               # 标记、超时（2400s，迁就真机 1106s）、pythonpath
 ├─ tools/
+│  ├─ record_schema.py      # **执行记录格式的唯一口径**（字段表 + 校验函数）
+│  ├─ validate_record.py    # 校验 results.json 是否符合契约（CI 门禁）
 │  ├─ summary.py            # 读 results.json 出汇总表（CI 里写 Job Summary）
 │  └─ judge.py              # LLM-as-judge 骨架：四维打分，B 接管 score_record()
 ├─ reports/latest/results.json   # 每次运行生成，不入库
 ├─ docs/
 │  ├─ 接口契约速查.md        # 16 字段 + 失败语义 + 指标口径 + 缓存与离线坑
-│  ├─ 测试用例清单.md        # 30 条用例，表与代码一一对应
-│  ├─ 缺陷清单.md            # 3 个缺陷 + 修复记录
+│  ├─ 执行记录格式.md        # results.json 的字段契约与版本策略（给 B / C）
+│  ├─ 测试用例清单.md        # 36 条用例，表与代码一一对应
+│  ├─ 缺陷清单.md            # 3 个缺陷 + 修复记录 + 真机缺陷
 │  └─ B-对抗用例接入说明.md  # 给 B 的手册
 └─ .github/workflows/ci.yml
 ```
@@ -44,12 +48,13 @@ python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
 
-pytest -v                                  # 全量 31 条
+pytest -v                                  # 全量 36 条
 pytest -m smoke -v                         # 只跑冒烟
 pytest -m adversarial -v                   # 只跑对抗（B 负责）
 pytest --no-record -v                      # 不写执行记录
 pytest --alluredir=reports/allure-results  # 生成 allure 原始数据
 python tools/summary.py                    # 打印执行汇总
+python tools/validate_record.py            # 校验执行记录格式（字段改了这里先红）
 python tools/judge.py                      # judge 打分 → reports/judge/latest.json
 ```
 
