@@ -5,7 +5,7 @@
 
 > 接口按《自动化评测接口说明》**v1.2** 对齐，速查见 `docs/接口契约速查.md`。
 > 当前 `agent_under_test/stub_agent.py` 是**本地替身**（与真实接口同构），
-> 故意保留 3 个缺陷，所以运行结果是 **29 通过 8 失败**。这是预期行为，不是环境问题。
+> 故意保留 3 个缺陷，所以运行结果是 **31 通过 8 失败**。这是预期行为，不是环境问题。
 > 真机侧已由 C 跑通冒烟 **2/2**（2026-10-18，1043s / 1106s），详见 `docs/缺陷清单.md`。
 
 ## 目录结构
@@ -35,7 +35,7 @@ agent-qa/
 ├─ docs/
 │  ├─ 接口契约速查.md        # 16 字段 + 失败语义 + 指标口径 + 缓存与离线坑
 │  ├─ 执行记录格式.md        # results.json 的字段契约与版本策略（给 B / C）
-│  ├─ 测试用例清单.md        # 37 条用例，表与代码一一对应
+│  ├─ 测试用例清单.md        # 39 条用例，表与代码一一对应
 │  ├─ 缺陷清单.md            # 3 个缺陷 + 修复记录 + 真机缺陷
 │  └─ B-对抗用例接入说明.md  # 给 B 的手册
 └─ .github/workflows/ci.yml
@@ -48,7 +48,7 @@ python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
 
-pytest -v                                  # 全量 37 条
+pytest -v                                  # 全量 39 条
 pytest -m smoke -v                         # 只跑冒烟
 pytest -m adversarial -v                   # 只跑对抗（B 负责）
 pytest --no-record -v                      # 不写执行记录

@@ -12,7 +12,9 @@ from __future__ import annotations
 
 FORMAT_VERSION = "1"
 
-TOP_KEYS = ("format_version", "run_at", "summary", "records")
+TOP_KEYS = ("format_version", "run_at", "sut", "summary", "records")
+SUT_KEYS = ("mode", "engine", "schema_version", "commit", "dirty")
+SUT_MODES = ("stub", "real")
 SUMMARY_KEYS = ("total", "passed", "failed", "error", "skipped", "pass_rate", "duration_s")
 RECORD_KEYS = (
     "case_id", "nodeid", "file", "markers",
@@ -79,6 +81,23 @@ def validate_payload(payload: dict) -> list[str]:
     missing_sum = [k for k in SUMMARY_KEYS if k not in summary]
     if missing_sum:
         errors.append(f"summary 缺少字段：{missing_sum}")
+
+    sut = payload.get("sut")
+    if not isinstance(sut, dict):
+        errors.append("sut 必须是对象（记录本次测的是哪个版本）")
+    else:
+        missing_sut = [k for k in SUT_KEYS if k not in sut]
+        if missing_sut:
+            errors.append(f"sut 缺少字段：{missing_sut}")
+        if sut.get("mode") not in SUT_MODES:
+            errors.append(f"sut.mode 非法：{sut.get('mode')!r}（应为 {SUT_MODES}）")
+        if not isinstance(sut.get("dirty"), bool):
+            errors.append("sut.dirty 必须是布尔值")
+        if sut.get("mode") == "real" and not sut.get("commit"):
+            errors.append(
+                "sut.mode=real 但 sut.commit 为空——真机结果无法复现，"
+                "检查 AGENT_SRC 是否指向一个 git 仓库"
+            )
 
     records = payload.get("records")
     if not isinstance(records, list) or not records:

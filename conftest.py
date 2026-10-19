@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -29,6 +30,32 @@ KNOWN_MARKERS = ("smoke", "contract", "safety", "adversarial", "slow")
 _STATE: dict[str, dict] = {}
 _RECORDS: list[dict] = []
 _NOW = ""
+
+# 本次运行测的是谁：stub（本地替身）还是 real（真机源码）
+_SUT_MODE = "stub"
+
+
+def _git_meta(path: str) -> tuple[str, bool]:
+    """取被测系统源码的 HEAD 与「工作区是否脏」。
+
+    可复现性的前提：光有 commit 不够，工作区脏说明跑的代码不等于那个 commit。
+    """
+    if not path:
+        return "", False
+    try:
+        head = subprocess.run(
+            ["git", "-C", path, "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if head.returncode != 0:
+            return "", False
+        status = subprocess.run(
+            ["git", "-C", path, "status", "--porcelain"],
+            capture_output=True, text=True, timeout=5,
+        )
+        return head.stdout.strip(), bool(status.stdout.strip())
+    except (OSError, subprocess.SubprocessError):
+        return "", False
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -69,12 +96,15 @@ def _build_agent() -> _Agent:
     AGENT_IMPL=real 时走真实实现（real_adapter），否则用本地替身。
     接真机只需要设环境变量，用例一行都不用改。
     """
+    global _SUT_MODE
     if os.environ.get("AGENT_IMPL", "").strip().lower() == "real":
         from agent_under_test.real_adapter import RealAgent
 
+        _SUT_MODE = "real"
         return _Agent(RealAgent())
     from agent_under_test import StubAgent
 
+    _SUT_MODE = "stub"
     return _Agent(StubAgent())
 
 
@@ -170,6 +200,29 @@ def _summarize(records: list[dict]) -> dict:
     }
 
 
+def _sut_info() -> dict:
+    """记录这次跑的是哪个版本的被测系统——可复现性的最低要求。"""
+    engine, schema_version = "unknown", ""
+    for record in _RECORDS:
+        out = (record.get("trace") or {}).get("output")
+        if isinstance(out, dict) and out.get("engine"):
+            engine = out.get("engine", engine)
+            schema_version = out.get("schema_version", schema_version)
+            break
+
+    commit, dirty = "", False
+    if _SUT_MODE == "real":
+        commit, dirty = _git_meta(os.environ.get("AGENT_SRC", ""))
+
+    return {
+        "mode": _SUT_MODE,
+        "engine": engine,
+        "schema_version": schema_version,
+        "commit": commit,
+        "dirty": dirty,
+    }
+
+
 def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     if session.config.getoption("--no-record", default=False):
         return
@@ -177,9 +230,11 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
         return
 
     summary = _summarize(_RECORDS)
+    sut = _sut_info()
     payload = {
         "format_version": FORMAT_VERSION,
         "run_at": _NOW,
+        "sut": sut,
         "summary": summary,
         "records": _RECORDS,
     }

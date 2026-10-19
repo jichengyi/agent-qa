@@ -41,6 +41,13 @@ def _payload() -> dict:
     return {
         "format_version": FORMAT_VERSION,
         "run_at": "2026-10-18T00:00:00+08:00",
+        "sut": {
+            "mode": "stub",
+            "engine": "research-assistant",
+            "schema_version": "1.2",
+            "commit": "",
+            "dirty": False,
+        },
         "summary": {
             "total": 1, "passed": 1, "failed": 0, "error": 0,
             "skipped": 0, "pass_rate": 100.0, "duration_s": 0.01,
@@ -82,3 +89,19 @@ def test_format_version_mismatch_is_caught():
     payload["format_version"] = "999"
     errors = validate_payload(payload)
     assert any("format_version" in e for e in errors), errors
+
+
+def test_real_mode_without_commit_is_caught():
+    """真机结果必须带 commit，否则一个月后无法复现。"""
+    payload = _payload()
+    payload["sut"]["mode"] = "real"
+    payload["sut"]["commit"] = ""
+    errors = validate_payload(payload)
+    assert any("commit" in e for e in errors), errors
+
+
+def test_missing_sut_is_caught():
+    payload = _payload()
+    del payload["sut"]
+    errors = validate_payload(payload)
+    assert any("sut" in e for e in errors), errors
