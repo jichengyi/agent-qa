@@ -46,8 +46,11 @@ agent-qa/
 > 先读 `usage.safety.skip_retrieval` / `no_web`——为 true 说明是遵从用户指令；
 > 两个都为 false 又没豁免，才是「该调的工具没调」。
 
-> **`citation.fabricated` 是列表，不是计数**。断言写 `len(...) == 0` 或 `== []`，
-> **不要写 `== 0`**——真机返回 `[]` 时得 `False`，离线替身返回 `0` 时 `len(0)` 抛 `TypeError`。
+> **`citation` 判据四条（C 给的，务必照做）**：
+> ① 判「无编造」只用 `len(citation["fabricated"]) == 0`、`== []` 或 `has_fabrication is False`；
+> ② **不要写 `fabricated == 0`**——真机返回 `[]`，`[] == 0` 是 False；
+> ③ **不要断言 citation 键数**——替身 6 键、真机 10 键，只依赖那 6 个必备键；
+> ④ 判「零引用」用 `markers == 0`，**不要用 `faithfulness == 0`**——真机零引用返回 `null`。
 
 > **失败信息不会短路**：跑批器会收集全部不合规项再统一报，所以一条用例同时有
 > 「工具为空」和「提示词泄露」时，两件事都会出现在失败信息里，不会只报前一个。

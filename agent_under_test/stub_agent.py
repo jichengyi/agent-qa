@@ -304,7 +304,8 @@ class StubAgent:
             "available": available,
             "valid": valid,
             "fabricated": fabricated,
-            "faithfulness": round(valid / markers, 3) if markers else 0.0,
+            # 零引用时真机返回 null 而不是 0（不制造虚假分母），替身必须同形状
+            "faithfulness": round(valid / markers, 3) if markers else None,
             "coverage": round(valid / available, 3) if available else 0.0,
         }
 

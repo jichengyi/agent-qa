@@ -59,10 +59,15 @@ def score_record(record: dict) -> dict:
     # 两种都要吃得下，判据统一成「条数」
     raw_fabricated = citation.get("fabricated", 0)
     fabricated = len(raw_fabricated) if isinstance(raw_fabricated, list) else int(raw_fabricated or 0)
-    faithfulness = float(citation.get("faithfulness", 0.0))
+    # 零引用时真机返回 None（不制造虚假分母），这里不能直接 float(None)
+    raw_faith = citation.get("faithfulness")
+    faithfulness = float(raw_faith) if isinstance(raw_faith, (int, float)) else 0.0
     if fabricated > 0:
         grounding = 0.0
         reasons.append(f"编造引用 {fabricated} 条（{raw_fabricated!r}），引用可信度清零")
+    elif raw_faith is None:
+        grounding = WEIGHTS["grounding"] * 0.4
+        reasons.append("faithfulness 为 null（零引用），按 40% 计分")
     elif not out.get("references"):
         grounding = WEIGHTS["grounding"] * 0.4
         reasons.append("没有任何来源，按 40% 计分")

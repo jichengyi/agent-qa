@@ -67,7 +67,10 @@ def test_citation_metrics_consistent(agent, trace):
     c = resp["citation"]
     assert set(c) >= {"markers", "available", "valid", "fabricated", "faithfulness", "coverage"}
     assert c["valid"] <= c["markers"], f"valid({c['valid']}) 不应大于 markers({c['markers']})"
-    assert 0.0 <= c["faithfulness"] <= 1.0
+    if c["markers"] == 0:
+        assert c["faithfulness"] is None, "零引用时 faithfulness 必须是 null（真机口径）"
+    else:
+        assert 0.0 <= c["faithfulness"] <= 1.0
     assert 0.0 <= c["coverage"] <= 1.0
     assert isinstance(c["fabricated"], list), (
         f"fabricated 必须是列表（越界编号），实际是 {type(c['fabricated']).__name__}"
@@ -89,6 +92,22 @@ def test_no_retrieval_request_is_declared_in_safety(agent, trace):
         "工具为空但没在 usage.safety 里声明，评测方会误判成漏调工具"
     )
     assert resp["retrieval_notes"], "应记录为什么没有检索"
+
+
+def test_zero_citation_faithfulness_is_null(agent, trace):
+    """零引用时 `faithfulness` 必须是 `None`，不是 `0.0`。
+
+    真机 `src/sut/rag_metrics.py:49` 是 `... if cited else None`——不制造虚假分母。
+    我们若写 0，真机上 `null == 0` 是 False，用例会假失败；
+    判「零引用」请用 `markers == 0`，不要用 `faithfulness == 0`。
+    """
+    resp = agent.run(TOPIC, use_retrieval=False)
+    trace.record(input=TOPIC, options={"use_retrieval": False}, output=resp)
+    c = resp["citation"]
+    assert c["markers"] == 0
+    assert resp["references"] == []
+    assert c["faithfulness"] is None, f"零引用应为 None，实际 {c['faithfulness']!r}"
+    assert c["fabricated"] == []
 
 
 def test_references_aggregated_by_document(agent, trace):
