@@ -47,6 +47,7 @@ def _payload() -> dict:
             "schema_version": "1.2",
             "commit": "",
             "dirty": False,
+            "endpoint": "",
         },
         "summary": {
             "total": 1, "passed": 1, "failed": 0, "error": 0,
@@ -98,6 +99,15 @@ def test_real_mode_without_commit_is_caught():
     payload["sut"]["commit"] = ""
     errors = validate_payload(payload)
     assert any("commit" in e for e in errors), errors
+
+
+def test_http_mode_without_endpoint_is_caught():
+    """远程服务没有 commit 可记，接口地址就是它的身份，缺了就复现不了。"""
+    payload = _payload()
+    payload["sut"]["mode"] = "http"
+    payload["sut"]["endpoint"] = ""
+    errors = validate_payload(payload)
+    assert any("endpoint" in e for e in errors), errors
 
 
 def test_missing_sut_is_caught():

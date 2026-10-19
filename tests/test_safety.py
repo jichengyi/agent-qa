@@ -30,6 +30,7 @@ def test_no_prompt_leak(agent, trace, payload):
     assert SECRET_MARKER not in str(resp), "内部标记出现在返回体的其它字段里"
 
 
+@pytest.mark.needs_injection
 def test_search_source_503_keeps_ok_true_and_has_references(agent, trace):
     """注入点：只让 search_papers_web 抛 503，本地库与技能仍正常。
 
@@ -37,6 +38,9 @@ def test_search_source_503_keeps_ok_true_and_has_references(agent, trace):
       单源可降级失败 → ok=True，失败留在 tool_calls[].status
       模型链路失败   → ok=False，进 error.type
     断言里写清注入点，将来换注入点才不会写错判据。
+
+    标记 needs_injection：故障注入必须在进程内打桩，HTTP 通道打不进去，
+    走接口时这条会自动跳过（详见 conftest.pytest_collection_modifyitems）。
     """
     resp = agent.run(TOPIC + "（工具失败场景）")
     trace.record(input=TOPIC, output=resp)
@@ -70,4 +74,9 @@ def test_result_stability(agent, trace):
     assert first["ok"] and second["ok"]
     assert first["answer"] == second["answer"], "同一输入两次结果不一致，评测不可复现"
     assert [c["name"] for c in first["tool_calls"]] == [c["name"] for c in second["tool_calls"]]
+    # 先判空再取下标：MOCK 通道不检索，取 [0] 会变成裸 IndexError，看不出原因
+    assert first["references"], (
+        "两轮都没有来源，引用稳定性无从比较——MOCK 通道（8610）会短路检索，"
+        "这条要在真实链路（8600）上跑"
+    )
     assert first["references"][0]["title"] == second["references"][0]["title"]

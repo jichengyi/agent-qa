@@ -31,8 +31,11 @@ _STATE: dict[str, dict] = {}
 _RECORDS: list[dict] = []
 _NOW = ""
 
-# 本次运行测的是谁：stub（本地替身）还是 real（真机源码）
+# 本次运行测的是谁：stub（本地替身）/ real（真机源码）/ http（真机接口）
 _SUT_MODE = "stub"
+
+# http 模式下的接口地址，写进执行记录——远程服务没有 commit 可记，地址就是身份
+_SUT_ENDPOINT = ""
 
 
 def _git_meta(path: str) -> tuple[str, bool]:
@@ -72,6 +75,22 @@ def pytest_sessionstart(session: pytest.Session) -> None:
     _NOW = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
 
 
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """HTTP 通道下自动跳过依赖进程内故障注入的用例。
+
+    跨网络只能发 prompt，改不了对端进程里某个函数的返回值，
+    故障注入必然失败。与其留一个看不懂的假红，不如明确跳过并说明该换哪种模式跑。
+    """
+    if os.environ.get("AGENT_IMPL", "").strip().lower() != "http":
+        return
+    skip = pytest.mark.skip(
+        reason="HTTP 通道无法注入进程内故障；去掉 AGENT_IMPL=http 用本地替身跑这条"
+    )
+    for item in items:
+        if "needs_injection" in item.keywords:
+            item.add_marker(skip)
+
+
 # 批量评测一律关缓存：缓存键不含故障注入状态，开着会让两条用例互相串结果
 # （C 的答疑第 3 节有实测：B 案例本该 ok=False，却命中了 A 的成功缓存）
 DEFAULT_RUN_OPTIONS = {"use_cache": False}
@@ -93,15 +112,27 @@ class _Agent:
 def _build_agent() -> _Agent:
     """被测对象的唯一入口。
 
-    AGENT_IMPL=real 时走真实实现（real_adapter），否则用本地替身。
-    接真机只需要设环境变量，用例一行都不用改。
+    AGENT_IMPL=http 走 C 的评测接口（平台化之后的形态）；
+    AGENT_IMPL=real 走真机源码（import src.api.run，保留兼容）；
+    否则用本地替身。接真机只需要设环境变量，用例一行都不用改。
     """
-    global _SUT_MODE
-    if os.environ.get("AGENT_IMPL", "").strip().lower() == "real":
+    global _SUT_MODE, _SUT_ENDPOINT
+    impl = os.environ.get("AGENT_IMPL", "").strip().lower()
+
+    if impl == "http":
+        from agent_under_test.http_adapter import HttpAgent
+
+        client = HttpAgent()
+        _SUT_MODE = "http"
+        _SUT_ENDPOINT = client.endpoint
+        return _Agent(client)
+
+    if impl == "real":
         from agent_under_test.real_adapter import RealAgent
 
         _SUT_MODE = "real"
         return _Agent(RealAgent())
+
     from agent_under_test import StubAgent
 
     _SUT_MODE = "stub"
@@ -220,6 +251,7 @@ def _sut_info() -> dict:
         "schema_version": schema_version,
         "commit": commit,
         "dirty": dirty,
+        "endpoint": _SUT_ENDPOINT,
     }
 
 

@@ -13,8 +13,8 @@ from __future__ import annotations
 FORMAT_VERSION = "1"
 
 TOP_KEYS = ("format_version", "run_at", "sut", "summary", "records")
-SUT_KEYS = ("mode", "engine", "schema_version", "commit", "dirty")
-SUT_MODES = ("stub", "real")
+SUT_KEYS = ("mode", "engine", "schema_version", "commit", "dirty", "endpoint")
+SUT_MODES = ("stub", "real", "http")
 SUMMARY_KEYS = ("total", "passed", "failed", "error", "skipped", "pass_rate", "duration_s")
 RECORD_KEYS = (
     "case_id", "nodeid", "file", "markers",
@@ -97,6 +97,11 @@ def validate_payload(payload: dict) -> list[str]:
             errors.append(
                 "sut.mode=real 但 sut.commit 为空——真机结果无法复现，"
                 "检查 AGENT_SRC 是否指向一个 git 仓库"
+            )
+        if sut.get("mode") == "http" and not sut.get("endpoint"):
+            errors.append(
+                "sut.mode=http 但 sut.endpoint 为空——远程服务没有 commit 可记，"
+                "接口地址就是它的身份，不记就无法复现"
             )
 
     records = payload.get("records")

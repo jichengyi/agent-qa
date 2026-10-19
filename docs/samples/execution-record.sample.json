@@ -7,7 +7,8 @@
     "engine": "research-assistant",
     "schema_version": "1.2",
     "commit": "",
-    "dirty": false
+    "dirty": false,
+    "endpoint": ""
   },
   "summary": {
     "total": 39,
