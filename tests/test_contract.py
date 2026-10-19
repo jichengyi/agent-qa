@@ -22,7 +22,8 @@ def test_empty_prompt_rejected(agent, trace):
     assert resp["ok"] is False, "空输入必须判失败"
     assert resp["error"] is not None
     assert resp["error"]["type"] == "InvalidPrompt", f"错误类型不符：{resp['error']}"
-    assert resp["error"]["where"] == "validate"
+    # where 是「出错位置」，真机实测为 "input"（限流是 "run_research_flow"，404 是 "http"）
+    assert resp["error"]["where"] == "input"
 
 
 @pytest.mark.parametrize("length", [MAX_PROMPT_CHARS + 1, MAX_PROMPT_CHARS * 2])
@@ -128,4 +129,4 @@ def test_references_aggregated_by_document(agent, trace):
         keys.append(ref.get("path") or ref.get("doi") or ref.get("url"))
 
     assert len(keys) == len(set(keys)), f"同一文档被拆成多条来源：{keys}"
-    assert resp["usage"]["source_count"] == len(refs), "source_count 应按聚合后的条数计"
+    assert resp["usage"]["sources"] == len(refs), "sources 应按聚合后的条数计"

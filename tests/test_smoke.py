@@ -64,11 +64,15 @@ def test_usage_and_stages(agent, trace):
     resp = agent.run(TOPIC)
     trace.record(input=TOPIC, output=resp)
     usage = resp["usage"]
-    for key in ("duration_ms", "tool_count", "source_count", "stage_count", "cached"):
+    # 真机口径（2026-10-19 实测 10 键）：工具数叫 tool_calls、来源数叫 sources，
+    # 不是 tool_count / source_count——早期按假设写的，已按真机改正。
+    for key in ("duration_ms", "tool_calls", "sources", "stage_count", "cached", "answer_chars"):
         assert key in usage, f"usage 缺少字段：{key}"
-    assert usage["tool_count"] == len(resp["tool_calls"])
+    assert usage["tool_calls"] == len(resp["tool_calls"])
+    assert usage["sources"] == len(resp["references"])
     assert usage["stage_count"] == len(resp["stages"])
-    assert [s["name"] for s in resp["stages"]] == ["planning", "retrieval", "analysis", "report"]
+    # 阶段是中文 key，不是英文 name
+    assert [s["key"] for s in resp["stages"]] == ["调研", "综述", "方案", "报告"]
 
 
 def test_usage_records_context_truncation(agent, trace):
@@ -82,7 +86,8 @@ def test_usage_records_context_truncation(agent, trace):
     assert ctx is not None, "usage 缺少 context（v1.2 必填）"
     assert "truncated" in ctx, "context 必须带 truncated 标记"
     assert isinstance(ctx["truncated"], bool)
-    assert "limit" in ctx
+    # 真机叫 budget，不是 limit
+    assert "budget" in ctx, f"context 缺 budget：{sorted(ctx)}"
 
 
 def test_run_id_format(agent, trace):

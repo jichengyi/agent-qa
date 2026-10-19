@@ -38,7 +38,13 @@ _INJECTION_KEYWORDS = ("忽略", "系统提示", "system prompt", "开发者模�
 # 否则评测方看到空 tool_calls 会误判成「工具错序」（C 的冒烟报告第 5 节）
 _NO_RETRIEVAL_KEYWORDS = ("不要检索", "别检索", "不用检索", "不联网")
 
-_STAGE_NAMES = ("planning", "retrieval", "analysis", "report")
+# 真机的阶段是「中文 key + 带序号的 label」，不是英文 name（2026-10-19 实测）
+_STAGES = (
+    ("调研", "① 文献调研"),
+    ("综述", "② 文献综述"),
+    ("方案", "③ 实验 / 方案设计"),
+    ("报告", "④ 研究报告"),
+)
 
 _REF_TEMPLATE = [
     {
@@ -105,14 +111,14 @@ class StubAgent:
         # ── 入参校验：两条硬约束，失败即结构化错误 ──────────────
         if not isinstance(prompt, str) or not prompt.strip():
             return self._fail(
-                prompt, "InvalidPrompt", "prompt 不能为空或非字符串", "validate",
+                prompt, "InvalidPrompt", "prompt 不能为空或非字符串", "input",
                 started, raise_on_error,
             )
         if len(prompt) > MAX_PROMPT_CHARS:
             return self._fail(
                 prompt, "PromptTooLong",
                 f"prompt 长度 {len(prompt)} 超过上限 {MAX_PROMPT_CHARS}",
-                "validate", started, raise_on_error,
+                "input", started, raise_on_error,
             )
 
         # DEF-001：命中越狱关键词时把内部标记写进 answer
@@ -152,8 +158,8 @@ class StubAgent:
 
         stage_costs = (12.4, 1832.4, 214.7, 96.1)
         result["stages"] = [
-            {"name": name, "status": "done", "duration_ms": cost, "budget_ms": 300_000}
-            for name, cost in zip(_STAGE_NAMES, stage_costs)
+            {"key": key, "label": label, "status": "done", "duration_ms": cost}
+            for (key, label), cost in zip(_STAGES, stage_costs)
         ]
 
         calls = [
@@ -252,21 +258,60 @@ class StubAgent:
 
         `safety` 是 v1.2 之后新增的判定依据：`tool_calls=[]` 本身不代表错序，
         要看 `safety.skip_retrieval` 是不是因为遵从了「别检索」指令。
+
+        字段名严格照真机（2026-10-19 用 /chat 实测的 10 键）：
+        ``duration_ms / stage_count / tool_calls / sources / answer_chars /
+        cached / cached_at / context / safety / evolve``。
+
+        注意 ``tool_calls`` 这里是**数字**，跟顶层那个列表同名不同型——
+        真机就是这么设计的，用例里别混用。
         """
-        result["usage"] = {
-            "duration_ms": round((time.perf_counter() - started) * 1000 + bonus_ms, 1),
-            "tool_count": len(result["tool_calls"]),
-            "source_count": len(result["references"]),
-            "stage_count": len(result["stages"]),
-            "cached": False,
-            "context": {"limit": 8000, "truncated": False, "waf_trimmed": False},
-            "safety": {"skip_retrieval": skip_retrieval, "no_web": no_web},
-        }
+        result["usage"] = self._usage(
+            result,
+            duration_ms=round((time.perf_counter() - started) * 1000 + bonus_ms, 1),
+            skip_retrieval=skip_retrieval,
+            no_web=no_web,
+        )
         return result
+
+    @staticmethod
+    def _usage(
+        result: dict,
+        duration_ms: float,
+        skip_retrieval: bool = False,
+        no_web: bool = False,
+    ) -> dict:
+        return {
+            "duration_ms": duration_ms,
+            "stage_count": len(result["stages"]),
+            "tool_calls": len(result["tool_calls"]),
+            "sources": len(result["references"]),
+            "answer_chars": len(result["answer"]),
+            "cached": False,
+            "cached_at": None,
+            "context": {
+                "total": 0,
+                "covered": 0,
+                "omitted": [],
+                "chars": 0,
+                # 真机叫 budget 不叫 limit；limit 是我们早期按假设写的，已作废
+                "budget": 4000,
+                "truncated": False,
+            },
+            "safety": {
+                "input_blocked": False,
+                "rule": None,
+                "output_blocked": False,
+                "output_rule": None,
+                "skip_retrieval": skip_retrieval,
+                "no_web": no_web,
+            },
+            "evolve": {"issues": [], "absorbed": 0, "queued": False, "generation": 2},
+        }
 
     # ── 骨架与失败构造 ──────────────────────────────────────
     def _base(self, prompt: object, started: float) -> dict:
-        return {
+        result = {
             "schema_version": SCHEMA_VERSION,
             "engine": ENGINE,
             "run_id": f"eval-{datetime.now():%Y%m%d-%H%M%S}-{uuid.uuid4().hex[:2]}",
@@ -280,33 +325,40 @@ class StubAgent:
             "self_eval": None,
             "stages": [],
             "retrieval_notes": [],
-            "usage": {
-                "duration_ms": round((time.perf_counter() - started) * 1000, 1),
-                "tool_count": 0,
-                "source_count": 0,
-                "stage_count": 0,
-                "cached": False,
-                "context": {"limit": 8000, "truncated": False, "waf_trimmed": False},
-                "safety": {"skip_retrieval": False, "no_web": False},
-            },
+            "usage": {},
             "warnings": [],
             "error": None,
         }
+        result["usage"] = self._usage(
+            result, round((time.perf_counter() - started) * 1000, 1)
+        )
+        return result
 
     @staticmethod
     def _citation(markers: int, available: int) -> dict:
+        """真机的 citation 是 10 键版本（2026-10-19 实测）。
+
+        前 6 个是评测依赖的必备键，后 4 个是 C 后来补的：
+        ``fabrication_rate``（编造占比）/ ``has_fabrication``（布尔快捷判据）/
+        ``repaired``（已修复条数）/ ``repaired_ids``（修复了哪些编号）。
+
+        断言纪律：判「无编造」只用 ``len(fabricated) == 0`` 或 ``has_fabrication is False``，
+        不要写 ``fabricated == 0``；也不要断言键数（备齐 10 个只是为了同形状）。
+        """
         valid = min(markers, available)
-        # fabricated 是「引用了不存在的编号」的**列表**，不是计数（C 的真实返回是 10 键版本）
-        # 断言里不要写 == 0，要写 len(...) == 0 或 == []
+        # fabricated 是「引用了不存在的编号」的**列表**，不是计数
         fabricated = list(range(available + 1, markers + 1))
         return {
             "markers": markers,
             "available": available,
             "valid": valid,
             "fabricated": fabricated,
-            # 零引用时真机返回 null 而不是 0（不制造虚假分母），替身必须同形状
+            "fabrication_rate": round(len(fabricated) / markers, 3) if markers else 0.0,
             "faithfulness": round(valid / markers, 3) if markers else None,
             "coverage": round(valid / available, 3) if available else 0.0,
+            "has_fabrication": bool(fabricated),
+            "repaired": 0,
+            "repaired_ids": [],
         }
 
     def _fail(
