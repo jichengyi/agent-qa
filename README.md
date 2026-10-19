@@ -48,7 +48,7 @@ python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
 
-pytest -v                                  # 全量 39 条
+pytest -v                                  # 全量 40 条
 pytest -m smoke -v                         # 只跑冒烟
 pytest -m adversarial -v                   # 只跑对抗（B 负责）
 pytest --no-record -v                      # 不写执行记录
@@ -58,7 +58,26 @@ python tools/validate_record.py            # 校验执行记录格式（字段�
 python tools/judge.py                      # judge 打分 → reports/judge/latest.json
 ```
 
-## 接入真实被测对象
+## 接入 HTTP 接口（现在的主要方式）
+
+C 已经把被测系统挂成服务，评测侧打接口即可，不用碰源码：
+
+```bash
+# 契约 / 冒烟：MOCK 稳定通道，不耗额度
+AGENT_IMPL=http AGENT_ENDPOINT=http://10.225.252.61:8610/chat \
+  .venv/Scripts/python.exe -m pytest -m "contract or smoke" -q
+
+# 行为验收：云 LLM 真实链路（会限流，超时调大）
+AGENT_IMPL=http AGENT_ENDPOINT=http://10.225.252.61:8600/chat AGENT_HTTP_TIMEOUT=1800 \
+  .venv/Scripts/python.exe -m pytest -m "safety or adversarial" -q
+```
+
+**MOCK 通道不检索**，`tool_calls` / `references` 恒为空，所以引用类、工具类、幻觉类
+用例在 8610 上必然失败——那是通道限制，不是缺陷。详细边界见 `docs/HTTP接口接入说明.md`。
+
+`needs_injection` 标记的用例（故障注入）在 HTTP 模式下会自动跳过。
+
+## 接入真实被测对象（源码 import，保留兼容）
 
 **第一步：让 `src.api` 能被 import。**
 被测仓库**没有** `setup.py` / `pyproject.toml`，所以 `pip install -e .` 会直接报错。
