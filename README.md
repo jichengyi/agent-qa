@@ -5,8 +5,22 @@
 
 > 接口按《自动化评测接口说明》**v1.2** 对齐，速查见 `docs/接口契约速查.md`。
 > 当前 `agent_under_test/stub_agent.py` 是**本地替身**（与真实接口同构），
-> 故意保留 3 个缺陷，所以运行结果是 **31 通过 8 失败**。这是预期行为，不是环境问题。
+> 故意保留 3 个缺陷，所以运行结果是 **32 通过 8 失败**。这是预期行为，不是环境问题。
 > 真机侧已由 C 跑通冒烟 **2/2**（2026-10-18，1043s / 1106s），详见 `docs/缺陷清单.md`。
+
+## 与 EduGuard 的分工（2026-10-19 定，双轨并行）
+
+组里现在有两个工程，**职责不重叠，别互相替代**：
+
+| | 本仓库 `agent-qa` | C 的 `EduGuard` |
+| --- | --- | --- |
+| 定位 | **测试基座**：契约、对抗用例、执行记录格式 | **演示平台**：Streamlit 看板、报告可视化 |
+| 产出 | `results.json`（机器可读、可复现、进 CI） | 分类型 P/R 图、风险发现、答辩演示 |
+| 用例 | 40 条，按接口契约与行为边界写 | 32 条合成用例，按业务场景写 |
+| A 的投入 | 主战场 | **只做最小接入**，不重复建用例 |
+
+判断依据：本仓库的东西要能进 CI、能被 B 的 judge 直接消费、能复现；
+EduGuard 的价值在“看得见”，两者不冲突。**新增用例优先放 agent-qa**。
 
 ## 目录结构
 
@@ -14,7 +28,8 @@
 agent-qa/
 ├─ agent_under_test/
 │  ├─ stub_agent.py         # 本地替身：run(prompt) -> 16 字段 dict，含 3 个已知缺陷
-│  ├─ real_adapter.py       # 真实实现适配器：包 src.api.run
+│  ├─ http_adapter.py       # HTTP 适配器：打 C 的 /chat 接口（现在的主要方式）
+│  ├─ real_adapter.py       # 源码适配器：包 src.api.run（保留兼容）
 │  └─ offline.py            # 离线打桩：外部依赖换假实现，流水线照常跑
 ├─ tests/
 │  ├─ conftest.py           # autouse：每条用例前后清被测系统的结果缓存
@@ -23,7 +38,7 @@ agent-qa/
 │  ├─ test_safety.py        # 对抗 6 条：越狱、单源 503、降级、可复现
 │  ├─ test_adversarial.py   # 对抗跑批器（B 负责）
 │  ├─ adversarial_cases.json # 对抗用例数据（B 只改这个文件）
-│  └─ test_record_schema.py # 执行记录格式的自测 5 条
+│  └─ test_record_schema.py # 执行记录格式的自测 8 条
 ├─ conftest.py              # agent / trace fixture；统一注入 use_cache=False；写完自检格式
 ├─ pytest.ini               # 标记、超时（2400s，迁就真机 1106s）、pythonpath
 ├─ tools/
@@ -33,9 +48,10 @@ agent-qa/
 │  └─ judge.py              # LLM-as-judge 骨架：四维打分，B 接管 score_record()
 ├─ reports/latest/results.json   # 每次运行生成，不入库
 ├─ docs/
-│  ├─ 接口契约速查.md        # 16 字段 + 失败语义 + 指标口径 + 缓存与离线坑
+│  ├─ 接口契约速查.md        # 16 字段 + 失败语义 + 指标口径 + 真机实测字段表
+│  ├─ HTTP接口接入说明.md    # 打 C 的 /chat 怎么配、8610 与 8600 的边界
 │  ├─ 执行记录格式.md        # results.json 的字段契约与版本策略（给 B / C）
-│  ├─ 测试用例清单.md        # 39 条用例，表与代码一一对应
+│  ├─ 测试用例清单.md        # 40 条用例，表与代码一一对应
 │  ├─ 缺陷清单.md            # 3 个缺陷 + 修复记录 + 真机缺陷
 │  └─ B-对抗用例接入说明.md  # 给 B 的手册
 └─ .github/workflows/ci.yml

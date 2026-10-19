@@ -3,6 +3,26 @@
 > 你负责三件事：**对抗用例集**、**judge 打分**、**指标体系**。
 > 代码框架已经搭好，你要做的是往里填内容，不用改结构。
 
+## 零、五分钟跑起来
+
+```bash
+git clone https://github.com/jichengyi/agent-qa.git
+cd agent-qa
+python -m venv .venv
+.venv\Scripts\pip install -r requirements.txt
+.venv\Scripts\python -m pytest -m adversarial -q
+```
+
+预期：10 条起点用例，**会有红有绿**。红的是被测系统真缺陷（替身故意留的），不是环境问题。
+实测基线：7 通过 / 3 失败，失败信息会直接指到「返回体中出现禁止片段：INTERNAL-RULE」。
+
+装依赖慢就加镜像：`-i https://pypi.tuna.tsinghua.edu.cn/simple`
+
+> **开发用例一律用默认的本地替身，不要设 `AGENT_IMPL=http`。**
+> C 的 MOCK 通道（8610）不检索，`tool_calls` / `references` 恒为空，
+> 对抗用例在那上面会**全红**——那是通道限制，不是你的用例写错了。
+> HTTP 接入是 A 的活，跟你无关，详见 `docs/HTTP接口接入说明.md`。
+
 ## 一、三个文件在哪
 
 ```
