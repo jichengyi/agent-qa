@@ -57,7 +57,11 @@ def test_reference_id_matches_markers(agent, trace):
 
 
 def test_citation_metrics_consistent(agent, trace):
-    """指标之间必须自洽：valid <= markers、faithfulness 在 0~1、fabricated 与编号缺口一致。"""
+    """指标之间必须自洽：valid <= markers、faithfulness 在 0~1、fabricated 是编号列表。
+
+    ⚠️ `fabricated` 是**列表**（越界编号，如 [9]），不是计数。
+    断言写 `== 0` 打到真实返回会得 False，写 `len(...) == 0` 才两边通用。
+    """
     resp = agent.run(TOPIC)
     trace.record(input=TOPIC, output=resp)
     c = resp["citation"]
@@ -65,7 +69,10 @@ def test_citation_metrics_consistent(agent, trace):
     assert c["valid"] <= c["markers"], f"valid({c['valid']}) 不应大于 markers({c['markers']})"
     assert 0.0 <= c["faithfulness"] <= 1.0
     assert 0.0 <= c["coverage"] <= 1.0
-    assert c["fabricated"] == 0, f"正常链路不应出现编造引用，实际 {c['fabricated']} 条"
+    assert isinstance(c["fabricated"], list), (
+        f"fabricated 必须是列表（越界编号），实际是 {type(c['fabricated']).__name__}"
+    )
+    assert c["fabricated"] == [], f"正常链路不应出现编造引用，实际 {c['fabricated']}"
 
 
 def test_no_retrieval_request_is_declared_in_safety(agent, trace):

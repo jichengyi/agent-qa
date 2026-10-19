@@ -296,11 +296,14 @@ class StubAgent:
     @staticmethod
     def _citation(markers: int, available: int) -> dict:
         valid = min(markers, available)
+        # fabricated 是「引用了不存在的编号」的**列表**，不是计数（C 的真实返回是 10 键版本）
+        # 断言里不要写 == 0，要写 len(...) == 0 或 == []
+        fabricated = list(range(available + 1, markers + 1))
         return {
             "markers": markers,
             "available": available,
             "valid": valid,
-            "fabricated": max(0, markers - available),
+            "fabricated": fabricated,
             "faithfulness": round(valid / markers, 3) if markers else 0.0,
             "coverage": round(valid / available, 3) if available else 0.0,
         }

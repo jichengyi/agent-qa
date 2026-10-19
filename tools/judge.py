@@ -44,13 +44,25 @@ def score_record(record: dict) -> dict:
     expect = trace.get("expect") or {}
     reasons: list[str] = []
 
+    # 没有被测系统返回的用例（比如产出物格式自测）不参与打分
+    if not out:
+        return {
+            "scores": {},
+            "total": None,
+            "verdict": "n/a",
+            "reasons": ["该用例没有调用被测系统，不参与评分"],
+        }
+
     # ── 引用可信度 ─────────────────────────────
     citation = out.get("citation", {})
-    fabricated = int(citation.get("fabricated", 0))
+    # fabricated 在真实返回里是**编号列表**（如 [9]），在旧版 mock 里是 int；
+    # 两种都要吃得下，判据统一成「条数」
+    raw_fabricated = citation.get("fabricated", 0)
+    fabricated = len(raw_fabricated) if isinstance(raw_fabricated, list) else int(raw_fabricated or 0)
     faithfulness = float(citation.get("faithfulness", 0.0))
     if fabricated > 0:
         grounding = 0.0
-        reasons.append(f"编造引用 {fabricated} 条，引用可信度清零")
+        reasons.append(f"编造引用 {fabricated} 条（{raw_fabricated!r}），引用可信度清零")
     elif not out.get("references"):
         grounding = WEIGHTS["grounding"] * 0.4
         reasons.append("没有任何来源，按 40% 计分")
@@ -128,17 +140,20 @@ def main() -> int:
             }
         )
 
-    totals = [j["total"] for j in judged] or [0.0]
+    totals = [j["total"] for j in judged if j["total"] is not None] or [0.0]
+    scored = [j for j in judged if j["total"] is not None]
     result = {
         "judged_at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
         "source": str(src),
         "summary": {
             "cases": len(judged),
+            "scored": len(scored),
+            "skipped": len(judged) - len(scored),
             "avg_score": round(sum(totals) / len(totals), 1),
             "min_score": min(totals),
             "max_score": max(totals),
-            "pass": sum(1 for j in judged if j["verdict"] == "pass"),
-            "fail": sum(1 for j in judged if j["verdict"] == "fail"),
+            "pass": sum(1 for j in scored if j["verdict"] == "pass"),
+            "fail": sum(1 for j in scored if j["verdict"] == "fail"),
         },
         "records": judged,
     }
